@@ -43,7 +43,7 @@ import org.slf4j.Logger;
 
 @EventBusSubscriber(modid = "peripheralfigure")
 public final class PeripheralFigureEvents {
-   private static final int DEBUG_COMMAND_PERMISSION_LEVEL = 0;
+   private static final int DEBUG_COMMAND_PERMISSION_LEVEL = 2;
    private static final int MAX_GROUND_SEARCH = 8;
    private static final int CANDIDATE_POOL_SIZE = 5;
    private static final double FIGURE_EYE_HEIGHT = 1.62;
@@ -70,7 +70,7 @@ public final class PeripheralFigureEvents {
                   if (gameTime >= scheduledSecond) {
                      SCHEDULED_SECOND_APPEARANCE_GAME_TIME.remove(id);
                      trySpawn(level, player, player.getRandom(), false, false);
-                     NEXT_ALLOWED_SPAWN_GAME_TIME.put(id, gameTime + cooldownTicksFor(player));
+                     NEXT_ALLOWED_SPAWN_GAME_TIME.put(id, safeFutureTick(gameTime, cooldownTicksFor(player)));
                   }
                } else {
                   Long nextAllowed = NEXT_ALLOWED_SPAWN_GAME_TIME.get(id);
@@ -82,7 +82,7 @@ public final class PeripheralFigureEvents {
 
                      if (!(player.getRandom().nextDouble() >= chance)) {
                         trySpawn(level, player, player.getRandom(), false, false);
-                        NEXT_ALLOWED_SPAWN_GAME_TIME.put(id, gameTime + cooldownTicksFor(player));
+                        NEXT_ALLOWED_SPAWN_GAME_TIME.put(id, safeFutureTick(gameTime, cooldownTicksFor(player)));
                      }
                   }
                }
@@ -133,7 +133,7 @@ public final class PeripheralFigureEvents {
 
    private static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
       dispatcher.register(
-         (LiteralArgumentBuilder)((LiteralArgumentBuilder)Commands.literal("peripheralfigure").requires(source -> source.hasPermission(0)))
+         (LiteralArgumentBuilder)((LiteralArgumentBuilder)Commands.literal("peripheralfigure").requires(source -> source.hasPermission(DEBUG_COMMAND_PERMISSION_LEVEL)))
             .then(
                ((LiteralArgumentBuilder)((LiteralArgumentBuilder)Commands.literal("debug")
                         .then(Commands.literal("spawn").executes(context -> debugSpawn((CommandSourceStack)context.getSource()))))
@@ -194,9 +194,18 @@ public final class PeripheralFigureEvents {
       if (!(random.nextDouble() >= (Double)PeripheralFigureConfig.SECOND_APPEARANCE_CHANCE.get())) {
          long min = (Long)PeripheralFigureConfig.SECOND_APPEARANCE_DELAY_MIN_TICKS.get();
          long max = Math.max(min, (Long)PeripheralFigureConfig.SECOND_APPEARANCE_DELAY_MAX_TICKS.get());
-         long delay = min + random.nextInt((int)(max - min) + 1);
-         SCHEDULED_SECOND_APPEARANCE_GAME_TIME.put(playerUuid, level.getGameTime() + delay);
+         long delay = randomInclusive(random, min, max);
+         SCHEDULED_SECOND_APPEARANCE_GAME_TIME.put(playerUuid, safeFutureTick(level.getGameTime(), delay));
       }
+   }
+
+   private static long randomInclusive(RandomSource random, long min, long max) {
+      long range = max - min + 1L;
+      return min + Math.floorMod(random.nextLong(), range);
+   }
+
+   private static long safeFutureTick(long gameTime, long delay) {
+      return delay > Long.MAX_VALUE - gameTime ? Long.MAX_VALUE : gameTime + delay;
    }
 
    private static boolean hasActiveFigure(ServerLevel level, UUID playerId) {
@@ -335,7 +344,9 @@ public final class PeripheralFigureEvents {
       figure.anchorHere();
       if (forceLinger || isLingerEligible(level, player)) {
          figure.markAsLingerVariant();
-         NEXT_ALLOWED_LINGER_GAME_TIME.put(player.getUUID(), level.getGameTime() + (Long)PeripheralFigureConfig.LINGER_VARIANT_COOLDOWN_TICKS.get());
+         NEXT_ALLOWED_LINGER_GAME_TIME.put(
+            player.getUUID(), safeFutureTick(level.getGameTime(), (Long)PeripheralFigureConfig.LINGER_VARIANT_COOLDOWN_TICKS.get())
+         );
       }
 
       level.addFreshEntity(figure);
